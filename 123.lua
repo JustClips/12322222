@@ -1,18 +1,38 @@
---// Player Heartbeat - Registers player presence to backend //--
+--// Universal Force Join Checker - Silent Version //--
 
 local HttpService = game:GetService("HttpService")
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local TeleportService = game:GetService("TeleportService")
-
--- Backend URL
-local BACKEND_URL = "https://discordbot-production-800b.up.railway.app"
-local HEARTBEAT_INTERVAL = 5 -- Send heartbeat every 5 seconds
-
--- Get local player
+local Players = game:GetService("Players")
 local localPlayer = Players.LocalPlayer
 
--- Check for force-join commands
+local BACKEND_URL = "https://discordbot-production-800b.up.railway.app"
+local CHECK_INTERVAL = 3
+local HEARTBEAT_INTERVAL = 10
+
+-- Function to perform the actual teleport
+local function performTeleport(placeId, jobId)
+    local placeIdNum = tonumber(placeId)
+    
+    -- Try multiple teleport methods
+    spawn(function()
+        -- Method 1: Standard TeleportToPlaceInstance
+        local s1, e1 = pcall(function()
+            TeleportService:TeleportToPlaceInstance(placeIdNum, jobId, localPlayer)
+        end)
+        
+        if not s1 then
+            wait(0.5)
+            -- Method 2: Try Teleport first if different game
+            if game.PlaceId ~= placeIdNum then
+                pcall(function()
+                    TeleportService:Teleport(placeIdNum, localPlayer)
+                end)
+            end
+        end
+    end)
+end
+
+-- Check for force join commands
 local function checkForceJoin()
     local username = localPlayer.Name:lower()
     local checkUrl = BACKEND_URL .. "/forcejoin/" .. username
@@ -36,41 +56,29 @@ local function checkForceJoin()
             Method = "GET",
             Headers = {["Content-Type"] = "application/json"}
         })
+    elseif http and http.request then
+        success, result = pcall(http.request, {
+            Url = checkUrl,
+            Method = "GET",
+            Headers = {["Content-Type"] = "application/json"}
+        })
     end
     
-    if success and result and result.Body then
-        local data = HttpService:JSONDecode(result.Body)
-        
-        if data.hasCommand then
-            local placeId = tonumber(data.placeId)
-            local jobId = data.jobId
-            
-            -- Multiple teleport attempts for better success rate
-            spawn(function()
-                -- Method 1: Direct TeleportToPlaceInstance
-                pcall(function()
-                    TeleportService:TeleportToPlaceInstance(placeId, jobId, localPlayer)
-                end)
-                
-                wait(0.5)
-                
-                -- Method 2: If different game, teleport to place first
-                if game.PlaceId ~= placeId then
-                    pcall(function()
-                        TeleportService:Teleport(placeId, localPlayer)
-                    end)
-                end
-                
-                -- Method 3: Try with game:GetService
-                pcall(function()
-                    game:GetService("TeleportService"):TeleportToPlaceInstance(placeId, jobId, localPlayer)
-                end)
+    if success and result then
+        local body = result.Body or result
+        if type(body) == "string" then
+            local parseSuccess, data = pcall(function()
+                return HttpService:JSONDecode(body)
             end)
+            
+            if parseSuccess and data and data.hasCommand then
+                performTeleport(data.placeId, data.jobId)
+            end
         end
     end
 end
 
--- Send heartbeat to backend
+-- Send heartbeat
 local function sendHeartbeat()
     local payload = {
         username = localPlayer.Name,
@@ -80,24 +88,30 @@ local function sendHeartbeat()
     }
     
     local json = HttpService:JSONEncode(payload)
-    local success, result
     
     if syn and syn.request then
-        success, result = pcall(syn.request, {
+        pcall(syn.request, {
             Url = BACKEND_URL .. "/players/heartbeat",
             Method = "POST",
             Headers = {["Content-Type"] = "application/json"},
             Body = json
         })
     elseif request then
-        success, result = pcall(request, {
+        pcall(request, {
             Url = BACKEND_URL .. "/players/heartbeat",
             Method = "POST",
             Headers = {["Content-Type"] = "application/json"},
             Body = json
         })
     elseif http_request then
-        success, result = pcall(http_request, {
+        pcall(http_request, {
+            Url = BACKEND_URL .. "/players/heartbeat",
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = json
+        })
+    elseif http and http.request then
+        pcall(http.request, {
             Url = BACKEND_URL .. "/players/heartbeat",
             Method = "POST",
             Headers = {["Content-Type"] = "application/json"},
@@ -106,7 +120,7 @@ local function sendHeartbeat()
     end
 end
 
--- Start heartbeat loop
+-- Main loop
 spawn(function()
     while true do
         pcall(sendHeartbeat)
@@ -115,4 +129,11 @@ spawn(function()
     end
 end)
 
--- Silent operation - no console output
+-- Faster check loop for force join commands
+spawn(function()
+    wait(2) -- Initial delay
+    while true do
+        pcall(checkForceJoin)
+        wait(CHECK_INTERVAL)
+    end
+end)
