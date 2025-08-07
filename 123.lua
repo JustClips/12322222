@@ -1,4 +1,4 @@
---// Universal Force Join Checker - Executor Version //--
+--// Force Join Receiver - Executor Direct Method //--
 
 local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
@@ -7,82 +7,46 @@ local localPlayer = Players.LocalPlayer
 
 local BACKEND_URL = "https://discordbot-production-800b.up.railway.app"
 local CHECK_INTERVAL = 2
-local HEARTBEAT_INTERVAL = 8
 
--- Keep track of last command
-local lastCommandTime = 0
-
--- Direct teleport using executor (bypasses Roblox restrictions)
-local function performTeleport(placeId, jobId)
-    -- Convert to number if string
-    local placeIdNum = tonumber(placeId) or placeId
-    
-    -- Use the EXACT method you provided
-    local success, err = pcall(function()
-        TeleportService:TeleportToPlaceInstance(placeIdNum, jobId, localPlayer)
-    end)
-    
-    if not success then
-        warn("Teleport failed: " .. tostring(err))
-        
-        -- Retry once after a short delay
-        wait(1)
-        local retry, retryErr = pcall(function()
-            TeleportService:TeleportToPlaceInstance(placeIdNum, jobId, localPlayer)
-        end)
-        
-        if not retry then
-            warn("Retry failed: " .. tostring(retryErr))
-        end
-    else
-        print("Teleporting to PlaceId: " .. tostring(placeIdNum))
-        print("Teleporting to JobId: " .. jobId)
-    end
-end
-
--- Check for force join commands
+-- Check and execute force join
 local function checkForceJoin()
     local username = localPlayer.Name:lower()
     local checkUrl = BACKEND_URL .. "/forcejoin/" .. username
     
     local success, result
-    
     if syn and syn.request then
         success, result = pcall(syn.request, {
             Url = checkUrl,
-            Method = "GET",
-            Headers = {["Content-Type"] = "application/json"}
+            Method = "GET"
         })
     elseif request then
         success, result = pcall(request, {
             Url = checkUrl,
-            Method = "GET",
-            Headers = {["Content-Type"] = "application/json"}
+            Method = "GET"
         })
     elseif http_request then
         success, result = pcall(http_request, {
             Url = checkUrl,
-            Method = "GET",
-            Headers = {["Content-Type"] = "application/json"}
+            Method = "GET"
         })
     end
     
-    if success and result then
-        local body = result.Body or result
-        if type(body) == "string" and body ~= "" then
-            local parseSuccess, data = pcall(function()
-                return HttpService:JSONDecode(body)
+    if success and result and result.Body then
+        local data = HttpService:JSONDecode(result.Body)
+        
+        if data.hasCommand then
+            -- YOUR EXACT TELEPORT METHOD
+            local placeId = tonumber(data.placeId)
+            local jobId = data.jobId
+            
+            local success, err = pcall(function()
+                TeleportService:TeleportToPlaceInstance(placeId, jobId, localPlayer)
             end)
             
-            if parseSuccess and data and data.hasCommand == true then
-                -- Avoid duplicate commands
-                local currentTime = tick()
-                if currentTime - lastCommandTime > 5 then
-                    lastCommandTime = currentTime
-                    
-                    -- Execute the teleport immediately
-                    performTeleport(data.placeId, data.jobId)
-                end
+            if not success then
+                warn("Teleport failed: " .. tostring(err))
+            else
+                print("Teleporting to job ID: " .. jobId)
             end
         end
     end
@@ -123,24 +87,19 @@ local function sendHeartbeat()
     end
 end
 
--- Main heartbeat loop
+-- Main loops
 spawn(function()
     while true do
         pcall(sendHeartbeat)
-        wait(HEARTBEAT_INTERVAL)
+        wait(10)
     end
 end)
 
--- Force join check loop
 spawn(function()
-    wait(1)
     while true do
         pcall(checkForceJoin)
         wait(CHECK_INTERVAL)
     end
 end)
 
--- Keep alive
-while true do
-    wait(60)
-end
+print("Force Join Receiver Active for:", localPlayer.Name)
