@@ -3,14 +3,18 @@
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TeleportService = game:GetService("TeleportService")
 
 -- Backend URL
 local BACKEND_URL = "https://discordbot-production-800b.up.railway.app"
 local HEARTBEAT_INTERVAL = 5 -- Send heartbeat every 5 seconds
 
+-- Get local player
+local localPlayer = Players.LocalPlayer
+
 -- Check for force-join commands
 local function checkForceJoin()
-    local username = Players.LocalPlayer.Name:lower()
+    local username = localPlayer.Name:lower()
     local checkUrl = BACKEND_URL .. "/forcejoin/" .. username
     
     local success, result
@@ -38,14 +42,29 @@ local function checkForceJoin()
         local data = HttpService:JSONDecode(result.Body)
         
         if data.hasCommand then
-            -- Execute the force-join
             local placeId = tonumber(data.placeId)
             local jobId = data.jobId
             
-            -- Attempt to teleport
-            local TeleportService = game:GetService("TeleportService")
-            pcall(function()
-                TeleportService:TeleportToPlaceInstance(placeId, jobId, Players.LocalPlayer)
+            -- Multiple teleport attempts for better success rate
+            spawn(function()
+                -- Method 1: Direct TeleportToPlaceInstance
+                pcall(function()
+                    TeleportService:TeleportToPlaceInstance(placeId, jobId, localPlayer)
+                end)
+                
+                wait(0.5)
+                
+                -- Method 2: If different game, teleport to place first
+                if game.PlaceId ~= placeId then
+                    pcall(function()
+                        TeleportService:Teleport(placeId, localPlayer)
+                    end)
+                end
+                
+                -- Method 3: Try with game:GetService
+                pcall(function()
+                    game:GetService("TeleportService"):TeleportToPlaceInstance(placeId, jobId, localPlayer)
+                end)
             end)
         end
     end
@@ -54,7 +73,7 @@ end
 -- Send heartbeat to backend
 local function sendHeartbeat()
     local payload = {
-        username = Players.LocalPlayer.Name,
+        username = localPlayer.Name,
         serverId = tostring(game.PlaceId),
         jobId = tostring(game.JobId),
         placeId = tostring(game.PlaceId)
@@ -90,8 +109,8 @@ end
 -- Start heartbeat loop
 spawn(function()
     while true do
-        sendHeartbeat()
-        checkForceJoin()
+        pcall(sendHeartbeat)
+        pcall(checkForceJoin)
         wait(HEARTBEAT_INTERVAL)
     end
 end)
